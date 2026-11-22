@@ -15,6 +15,13 @@ import aiohttp
 
 from .const import BASE_URL
 
+_BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+    "Origin": BASE_URL,
+    "Referer": f"{BASE_URL}/",
+    "Accept-Language": "de-AT,de;q=0.9",
+}
+
 
 class EdaPortalError(Exception):
     """Allgemeiner Fehler."""
@@ -37,12 +44,13 @@ class EdaPortalClient:
             async with self._session.post(
                 f"{BASE_URL}/api/login",
                 json={"email": self._email, "password": self._password},
+                headers={"Accept": "application/json", **_BROWSER_HEADERS},
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
                 if resp.status in (400, 401, 403):
                     raise EdaPortalAuthError("Anmeldung abgelehnt")
                 if resp.status != 200:
-                    raise EdaPortalError(f"Login HTTP {resp.status}")
+                    raise EdaPortalError(f"Login HTTP {resp.status}: {(await resp.text())[:200]!r}")
                 data = await resp.json(content_type=None)
         except aiohttp.ClientError as err:
             raise EdaPortalError(f"Verbindungsfehler: {err}") from err
@@ -58,7 +66,7 @@ class EdaPortalClient:
             async with self._session.post(
                 f"{BASE_URL}{path}",
                 json=body,
-                headers={"Authorization": f"Bearer {self._token}", "Accept": "application/json"},
+                headers={"Authorization": f"Bearer {self._token}", "Accept": "application/json", **_BROWSER_HEADERS},
                 timeout=aiohttp.ClientTimeout(total=60),
             ) as resp:
                 text = await resp.text()
@@ -69,7 +77,7 @@ class EdaPortalClient:
                         return await self._post(path, body, retry=False)
                     raise EdaPortalAuthError("Token abgelehnt")
                 if resp.status != 200:
-                    raise EdaPortalError(f"HTTP {resp.status} bei {path}")
+                    raise EdaPortalError(f"HTTP {resp.status} bei {path}: {text[:200]!r}")
                 return await resp.json(content_type=None)
         except aiohttp.ClientError as err:
             raise EdaPortalError(f"Verbindungsfehler: {err}") from err
