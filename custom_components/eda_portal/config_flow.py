@@ -14,6 +14,7 @@ from .const import (
     CONF_LOOKBACK_DAYS,
     CONF_METERING_POINT,
     CONF_PASSWORD,
+    CONF_COMMUNITY_OVERRIDE,
     CONF_PARTICIPATION,
     DEFAULT_PARTICIPATION,
     CONF_PRELIM_DAYS,
@@ -53,6 +54,7 @@ class EdaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             try:
                 await client.login()
+                await client.resolve_community(user_input[CONF_COMMUNITY_ID])
             except EdaPortalAuthError:
                 errors["base"] = "invalid_auth"
             except EdaPortalError:
@@ -103,6 +105,7 @@ class EdaOptionsFlow(config_entries.OptionsFlow):
                 {
                     vol.Required(CONF_LOOKBACK_DAYS, default=o.get(CONF_LOOKBACK_DAYS, DEFAULT_LOOKBACK_DAYS)): vol.All(int, vol.Range(min=1, max=120)),
                     vol.Required(CONF_PRELIM_DAYS, default=o.get(CONF_PRELIM_DAYS, DEFAULT_PRELIM_DAYS)): vol.All(int, vol.Range(min=0, max=30)),
+                    vol.Optional(CONF_COMMUNITY_OVERRIDE, default=o.get(CONF_COMMUNITY_OVERRIDE, "")): str,
                     vol.Optional(CONF_PARTICIPATION, default=o.get(CONF_PARTICIPATION, DEFAULT_PARTICIPATION)): str,
                     vol.Optional(CONF_PRODUCER_MARITTA, default=o.get(CONF_PRODUCER_MARITTA, DEFAULT_PRODUCER_MARITTA)): str,
                     vol.Optional(CONF_PRODUCER_OLIVER, default=o.get(CONF_PRODUCER_OLIVER, DEFAULT_PRODUCER_OLIVER)): str,

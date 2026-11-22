@@ -1,6 +1,7 @@
 """Konstanten der EDA-Portal-Integration."""
 DOMAIN = "eda_portal"
 BASE_URL = "https://prod.eda-portal.at"
+API_URL = "https://prod-api.eda-portal.at"
 TIMEZONE = "Europe/Vienna"
 
 CONF_EMAIL = "email"
@@ -25,3 +26,5 @@ DEFAULT_PRODUCER_OLIVER = "AT0090000000000000000X565X006900E"
 
 CONF_PARTICIPATION = "participation"
 DEFAULT_PARTICIPATION = "2026-11-07:40"
+
+CONF_COMMUNITY_OVERRIDE = "community_id_override"

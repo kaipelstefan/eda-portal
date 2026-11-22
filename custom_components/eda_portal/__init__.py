@@ -25,6 +25,7 @@ from .const import (
     CONF_LOOKBACK_DAYS,
     CONF_METERING_POINT,
     CONF_PASSWORD,
+    CONF_COMMUNITY_OVERRIDE,
     CONF_PARTICIPATION,
     DEFAULT_PARTICIPATION,
     CONF_PRELIM_DAYS,
@@ -106,8 +107,34 @@ class EdaCoordinator(DataUpdateCoordinator[EdaResult]):
         return int(self.entry.options.get(CONF_LOOKBACK_DAYS, DEFAULT_LOOKBACK_DAYS))
 
     @property
-    def _participation(self):
+    def _participation_fallback(self):
         return parse_participation(self.entry.options.get(CONF_PARTICIPATION, DEFAULT_PARTICIPATION))
+
+    @property
+    def _configured_community(self) -> str:
+        return str(self.entry.options.get(CONF_COMMUNITY_OVERRIDE) or self.entry.data[CONF_COMMUNITY_ID]).strip()
+
+    async def _prepare(self) -> list:
+        """Interne EEG-ID aufloesen (bei jedem Lauf, falls sie sich aendert) und Teilnahmefaktor lesen."""
+        try:
+            internal = await self.client.resolve_community(self._configured_community)
+            self.client.set_community(internal)
+        except EdaPortalAuthError as err:
+            raise ConfigEntryAuthFailed(str(err)) from err
+        except EdaPortalError as err:
+            internal = None
+            _LOGGER.warning("EEG-ID konnte nicht aufgeloest werden, es wird der gespeicherte Wert benutzt: %s", err)
+            self.client.set_community(self._configured_community)
+        if internal:
+            try:
+                hist = await self.client.participation_history(internal, self.zp)
+                if hist:
+                    return hist
+            except EdaPortalAuthError as err:
+                raise ConfigEntryAuthFailed(str(err)) from err
+            except EdaPortalError as err:
+                _LOGGER.warning("Teilnahmefaktor nicht aus dem Portal lesbar, Einstellung wird benutzt: %s", err)
+        return self._participation_fallback
 
     @property
     def _producers(self) -> tuple[str, str]:
@@ -121,6 +148,7 @@ class EdaCoordinator(DataUpdateCoordinator[EdaResult]):
         """Holt g/p fuer jeden Tag und schreibt die Statistiken."""
         async with self._lock:
             today = datetime.now(TZ).date()
+            participation = await self._prepare()
             hours: list[dict] = []
             missing: list[str] = []
             for day in days_range(start, end):
@@ -147,7 +175,7 @@ class EdaCoordinator(DataUpdateCoordinator[EdaResult]):
                     except EdaPortalError as err:
                         _LOGGER.warning("Erzeugerdaten fuer %s nicht abrufbar: %s", day, err)
                         gen_m, gen_o = [], []
-                day_hours = build_hours(g, p, TZ, today, self._prelim_days, gen_m, gen_o, self._participation)
+                day_hours = build_hours(g, p, TZ, today, self._prelim_days, gen_m, gen_o, participation)
                 if len(day_hours) < 23:
                     missing.append(day.isoformat())
                 hours.extend(day_hours)

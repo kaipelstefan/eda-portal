@@ -3,11 +3,11 @@
     "step": {
       "user": {
         "title": "EDA Portal",
-        "description": "Zugangsdaten des EDA-Portals (prod.eda-portal.at). Die Community-ID steht in der Adresse der Energiegemeinschaft (…/energyCommunity/<ID>/overview).",
+        "description": "Zugangsdaten des EDA-Portals (prod.eda-portal.at) und die EEG-ID der Energiegemeinschaft, z. B. RC100767.",
         "data": {
           "email": "E-Mail",
           "password": "Passwort",
-          "community_id": "Community-ID",
+          "community_id": "EEG-ID (z. B. RC100767)",
           "metering_point": "Zaehlpunkt"
         }
       },
@@ -31,7 +31,8 @@
         "data": {
           "lookback_days": "Tage rueckwirkend pro Abruf",
           "prelim_days": "Tage, die als vorlaeufig gelten",
-          "participation": "Teilnahmefaktor-Verlauf (Datum:Prozent, z. B. 2026-11-07:40)",
+          "community_id_override": "EEG-ID ändern (leer = wie eingerichtet)",
+          "participation": "Teilnahmefaktor-Verlauf nur als Rückfall (Datum:Prozent)",
           "producer_maritta": "Zaehlpunkt PV Maritta (leer = keine Aufteilung)",
           "producer_oliver": "Zaehlpunkt PV Oliver (leer = keine Aufteilung)"
         }
