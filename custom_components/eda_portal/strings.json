@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "EDA Portal",
+        "description": "Zugangsdaten des EDA-Portals (prod.eda-portal.at). Die Community-ID steht in der Adresse der Energiegemeinschaft (…/energyCommunity/<ID>/overview).",
+        "data": {
+          "email": "E-Mail",
+          "password": "Passwort",
+          "community_id": "Community-ID",
+          "metering_point": "Zaehlpunkt"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Neu anmelden",
+        "data": { "password": "Passwort" }
+      }
+    },
+    "error": {
+      "invalid_auth": "Anmeldung fehlgeschlagen",
+      "cannot_connect": "Keine Verbindung zum Portal"
+    },
+    "abort": {
+      "already_configured": "Dieser Zaehlpunkt ist bereits eingerichtet",
+      "reauth_successful": "Neu angemeldet"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "lookback_days": "Tage rueckwirkend pro Abruf",
+          "prelim_days": "Tage, die als vorlaeufig gelten"
+        }
+      }
+    }
+  }
+}

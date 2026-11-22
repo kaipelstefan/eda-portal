@@ -1,0 +1,14 @@
+backfill:
+  name: Historie nachladen
+  description: Holt Viertelstundenwerte fuer einen Zeitraum aus dem EDA-Portal und schreibt die Statistiken.
+  fields:
+    start_date:
+      name: Von
+      required: true
+      selector:
+        date:
+    end_date:
+      name: Bis
+      required: false
+      selector:
+        date:

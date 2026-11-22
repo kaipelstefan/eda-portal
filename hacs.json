@@ -1,0 +1,5 @@
+{
+  "name": "EDA Portal (Energiegemeinschaft)",
+  "render_readme": true,
+  "homeassistant": "2024.8.0"
+}

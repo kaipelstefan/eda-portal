@@ -1,0 +1,19 @@
+"""Konstanten der EDA-Portal-Integration."""
+DOMAIN = "eda_portal"
+BASE_URL = "https://prod.eda-portal.at"
+TIMEZONE = "Europe/Vienna"
+
+CONF_EMAIL = "email"
+CONF_PASSWORD = "password"
+CONF_COMMUNITY_ID = "community_id"
+CONF_METERING_POINT = "metering_point"
+
+CONF_LOOKBACK_DAYS = "lookback_days"
+CONF_PRELIM_DAYS = "prelim_days"
+DEFAULT_LOOKBACK_DAYS = 14
+DEFAULT_PRELIM_DAYS = 3
+
+UPDATE_INTERVAL_HOURS = 6
+REQUEST_PAUSE_SECONDS = 0.3
+
+SERVICE_BACKFILL = "backfill"
