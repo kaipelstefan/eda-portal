@@ -42,6 +42,7 @@ def build_hours(
     prelim_days: int,
     gen_maritta: list[list] | None = None,
     gen_oliver: list[list] | None = None,
+    participation: list[tuple[date, float]] | None = None,
 ) -> list[dict]:
     """Stundenwerte: verbrauch (g), eigendeckung (g - p, >= 0), vorlaeufig (1/0).
 
@@ -62,7 +63,9 @@ def build_hours(
         qs = groups[start]
         if len(qs) != 4:
             continue
-        v = sum(g[q][0] for q in qs)
+        # Das Portal liefert den Verbrauch nach Teilnahmefaktor (g). Die Statistik soll wie bisher
+        # den gesamten gemessenen Verbrauch zeigen: g / Faktor.
+        v = sum(g[q][0] / (participation_for(q.astimezone(tz).date(), participation or []) / 100.0) for q in qs)
         # Eigendeckung je Viertelstunde (nie negativ, nie groesser als der Verbrauch), dann summiert
         eq = {q: min(max(0.0, g[q][0] - p[q][0]), g[q][0]) for q in qs}
         e = sum(eq.values())
@@ -90,6 +93,32 @@ def build_hours(
             item["eigendeckung_oliver"] = round(eo, 6)
         hours.append(item)
     return hours
+
+
+def parse_participation(text: str | None) -> list[tuple[date, float]]:
+    """'2026-11-07:40, 2027-01-01:100' -> [(date, Prozent)], sortiert. Ungueltiges wird ignoriert."""
+    out: list[tuple[date, float]] = []
+    for part in str(text or "").replace(";", ",").replace("\n", ",").split(","):
+        part = part.strip()
+        if ":" not in part:
+            continue
+        d, pct = part.split(":", 1)
+        try:
+            val = float(pct.strip().replace("%", "").replace(",", "."))
+            if val > 0:
+                out.append((date.fromisoformat(d.strip()), val))
+        except ValueError:
+            continue
+    return sorted(out)
+
+
+def participation_for(day: date, changes: list[tuple[date, float]]) -> float:
+    """Teilnahmefaktor in Prozent fuer einen Tag (Standard 100)."""
+    pct = 100.0
+    for d, v in changes:
+        if d <= day:
+            pct = v
+    return pct
 
 
 def days_range(start: date, end: date) -> list[date]:

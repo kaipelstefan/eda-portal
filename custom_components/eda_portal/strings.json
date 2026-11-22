@@ -31,6 +31,7 @@
         "data": {
           "lookback_days": "Tage rueckwirkend pro Abruf",
           "prelim_days": "Tage, die als vorlaeufig gelten",
+          "participation": "Teilnahmefaktor-Verlauf (Datum:Prozent, z. B. 2026-11-07:40)",
           "producer_maritta": "Zaehlpunkt PV Maritta (leer = keine Aufteilung)",
           "producer_oliver": "Zaehlpunkt PV Oliver (leer = keine Aufteilung)"
         }

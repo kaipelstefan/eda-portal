@@ -25,6 +25,8 @@ from .const import (
     CONF_LOOKBACK_DAYS,
     CONF_METERING_POINT,
     CONF_PASSWORD,
+    CONF_PARTICIPATION,
+    DEFAULT_PARTICIPATION,
     CONF_PRELIM_DAYS,
     CONF_PRODUCER_MARITTA,
     CONF_PRODUCER_OLIVER,
@@ -38,7 +40,7 @@ from .const import (
     TIMEZONE,
     UPDATE_INTERVAL_HOURS,
 )
-from .importer import build_hours, days_range, stat_id
+from .importer import build_hours, days_range, parse_participation, stat_id
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
@@ -104,6 +106,10 @@ class EdaCoordinator(DataUpdateCoordinator[EdaResult]):
         return int(self.entry.options.get(CONF_LOOKBACK_DAYS, DEFAULT_LOOKBACK_DAYS))
 
     @property
+    def _participation(self):
+        return parse_participation(self.entry.options.get(CONF_PARTICIPATION, DEFAULT_PARTICIPATION))
+
+    @property
     def _producers(self) -> tuple[str, str]:
         o = self.entry.options
         return (
@@ -141,7 +147,7 @@ class EdaCoordinator(DataUpdateCoordinator[EdaResult]):
                     except EdaPortalError as err:
                         _LOGGER.warning("Erzeugerdaten fuer %s nicht abrufbar: %s", day, err)
                         gen_m, gen_o = [], []
-                day_hours = build_hours(g, p, TZ, today, self._prelim_days, gen_m, gen_o)
+                day_hours = build_hours(g, p, TZ, today, self._prelim_days, gen_m, gen_o, self._participation)
                 if len(day_hours) < 23:
                     missing.append(day.isoformat())
                 hours.extend(day_hours)

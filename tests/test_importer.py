@@ -71,3 +71,14 @@ def test_no_split_without_generation():
     g = day_rows("2026-11-15", lambda h, m: 0.4)
     hs = importer.build_hours(g, g, TZ, date(2026, 12, 1), 3, [], [])
     assert "eigendeckung_maritta" not in hs[0]
+
+
+def test_participation_total_consumption():
+    ch = importer.parse_participation("2026-11-07:40")
+    assert ch == [(date(2026, 11, 7), 40.0)]
+    assert importer.participation_for(date(2026, 11, 6), ch) == 100.0
+    g = day_rows("2026-11-07", lambda h, m: 0.1)
+    hs = importer.build_hours(g, g, TZ, date(2026, 12, 1), 3, participation=ch)
+    assert abs(hs[0]["verbrauch"] - 1.0) < 1e-9  # 4 x 0.1 / 0.4
+    g6 = day_rows("2026-11-06", lambda h, m: 0.1)
+    assert abs(importer.build_hours(g6, g6, TZ, date(2026, 12, 1), 3, participation=ch)[0]["verbrauch"] - 0.4) < 1e-9
