@@ -30,7 +30,9 @@
       "init": {
         "data": {
           "lookback_days": "Tage rueckwirkend pro Abruf",
-          "prelim_days": "Tage, die als vorlaeufig gelten"
+          "prelim_days": "Tage, die als vorlaeufig gelten",
+          "producer_maritta": "Zaehlpunkt PV Maritta (leer = keine Aufteilung)",
+          "producer_oliver": "Zaehlpunkt PV Oliver (leer = keine Aufteilung)"
         }
       }
     }

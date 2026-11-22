@@ -26,6 +26,10 @@ from .const import (
     CONF_METERING_POINT,
     CONF_PASSWORD,
     CONF_PRELIM_DAYS,
+    CONF_PRODUCER_MARITTA,
+    CONF_PRODUCER_OLIVER,
+    DEFAULT_PRODUCER_MARITTA,
+    DEFAULT_PRODUCER_OLIVER,
     DEFAULT_LOOKBACK_DAYS,
     DEFAULT_PRELIM_DAYS,
     DOMAIN,
@@ -42,7 +46,9 @@ TZ = ZoneInfo(TIMEZONE)
 
 _STATS = (("verbrauch", "kWh", "energy", "Verbrauch"),
           ("eigendeckung", "kWh", "energy", "Eigendeckung"),
-          ("vorlaeufig", "Flag", None, "Vorlaeufig"))
+          ("vorlaeufig", "Flag", None, "Vorlaeufig"),
+          ("eigendeckung_maritta", "kWh", "energy", "Eigendeckung PV Maritta"),
+          ("eigendeckung_oliver", "kWh", "energy", "Eigendeckung PV Oliver"))
 
 
 @dataclass
@@ -97,6 +103,14 @@ class EdaCoordinator(DataUpdateCoordinator[EdaResult]):
     def _lookback(self) -> int:
         return int(self.entry.options.get(CONF_LOOKBACK_DAYS, DEFAULT_LOOKBACK_DAYS))
 
+    @property
+    def _producers(self) -> tuple[str, str]:
+        o = self.entry.options
+        return (
+            str(o.get(CONF_PRODUCER_MARITTA, DEFAULT_PRODUCER_MARITTA)).strip().upper(),
+            str(o.get(CONF_PRODUCER_OLIVER, DEFAULT_PRODUCER_OLIVER)).strip().upper(),
+        )
+
     async def import_range(self, start: date, end: date) -> EdaResult:
         """Holt g/p fuer jeden Tag und schreibt die Statistiken."""
         async with self._lock:
@@ -113,7 +127,21 @@ class EdaCoordinator(DataUpdateCoordinator[EdaResult]):
                     raise ConfigEntryAuthFailed(str(err)) from err
                 except EdaPortalError as err:
                     raise UpdateFailed(str(err)) from err
-                day_hours = build_hours(g, p, TZ, today, self._prelim_days)
+                pm, po = self._producers
+                gen_m: list = []
+                gen_o: list = []
+                if pm and po:
+                    try:
+                        gen_m = await self.client.day("g", pm, day)
+                        await asyncio.sleep(REQUEST_PAUSE_SECONDS)
+                        gen_o = await self.client.day("g", po, day)
+                        await asyncio.sleep(REQUEST_PAUSE_SECONDS)
+                    except EdaPortalAuthError as err:
+                        raise ConfigEntryAuthFailed(str(err)) from err
+                    except EdaPortalError as err:
+                        _LOGGER.warning("Erzeugerdaten fuer %s nicht abrufbar: %s", day, err)
+                        gen_m, gen_o = [], []
+                day_hours = build_hours(g, p, TZ, today, self._prelim_days, gen_m, gen_o)
                 if len(day_hours) < 23:
                     missing.append(day.isoformat())
                 hours.extend(day_hours)
@@ -122,6 +150,7 @@ class EdaCoordinator(DataUpdateCoordinator[EdaResult]):
                 data = [
                     StatisticData(start=h["start"], mean=h[key], min=h[key], max=h[key])
                     for h in hours
+                    if key in h
                 ]
                 if data:
                     async_add_external_statistics(self.hass, _metadata(self.zp, key, unit, unit_class, label), data)

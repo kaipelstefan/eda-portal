@@ -40,6 +40,8 @@ def build_hours(
     tz: ZoneInfo,
     today: date,
     prelim_days: int,
+    gen_maritta: list[list] | None = None,
+    gen_oliver: list[list] | None = None,
 ) -> list[dict]:
     """Stundenwerte: verbrauch (g), eigendeckung (g - p, >= 0), vorlaeufig (1/0).
 
@@ -48,6 +50,9 @@ def build_hours(
     Tag liegt weniger als `prelim_days` Tage zurueck."""
     g = _to_utc(g_rows, tz)
     p = _to_utc(p_rows, tz)
+    split = bool(gen_maritta) and bool(gen_oliver)
+    gm = _to_utc(gen_maritta or [], tz) if split else {}
+    go = _to_utc(gen_oliver or [], tz) if split else {}
     groups: dict[datetime, list[datetime]] = defaultdict(list)
     for q in g:
         if q in p:
@@ -58,20 +63,32 @@ def build_hours(
         if len(qs) != 4:
             continue
         v = sum(g[q][0] for q in qs)
-        rest = sum(p[q][0] for q in qs)
-        e = max(0.0, v - rest)
-        e = min(e, v)
+        # Eigendeckung je Viertelstunde (nie negativ, nie groesser als der Verbrauch), dann summiert
+        eq = {q: min(max(0.0, g[q][0] - p[q][0]), g[q][0]) for q in qs}
+        e = sum(eq.values())
+        em = eo = 0.0
+        if split:
+            for q in qs:
+                a = gm.get(q, (0.0, ""))[0]
+                b = go.get(q, (0.0, ""))[0]
+                if a + b > 0:
+                    eo += eq[q] * b / (a + b)
+                    em += eq[q] - eq[q] * b / (a + b)
+                else:
+                    em += eq[q]  # ohne Erzeugung -> PV Maritta (wie im bisherigen Import)
         quality_ok = all(g[q][1] == QUALITY_OK and p[q][1] == QUALITY_OK for q in qs)
         local_day = start.astimezone(tz).date()
         recent = (today - local_day).days < prelim_days
-        hours.append(
-            {
-                "start": start,
-                "verbrauch": round(v, 6),
-                "eigendeckung": round(e, 6),
-                "vorlaeufig": 0 if (quality_ok and not recent) else 1,
-            }
-        )
+        item = {
+            "start": start,
+            "verbrauch": round(v, 6),
+            "eigendeckung": round(e, 6),
+            "vorlaeufig": 0 if (quality_ok and not recent) else 1,
+        }
+        if split:
+            item["eigendeckung_maritta"] = round(em, 6)
+            item["eigendeckung_oliver"] = round(eo, 6)
+        hours.append(item)
     return hours
 
 

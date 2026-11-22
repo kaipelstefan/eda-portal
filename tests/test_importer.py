@@ -51,3 +51,23 @@ def test_dst_fall_back_25_hours():
 
 def test_stat_id():
     assert importer.stat_id("AT009X49343", "verbrauch") == "sensor:eeg_at009x49343_verbrauch"
+
+
+def test_split_proportional_and_fallback():
+    g = day_rows("2026-11-15", lambda h, m: 0.4)
+    p = day_rows("2026-11-15", lambda h, m: 0.1)  # eigendeckung 0.3 je Viertelstunde
+    gm = day_rows("2026-11-15", lambda h, m: 0.3 if h == 12 else 0.0)
+    go = day_rows("2026-11-15", lambda h, m: 0.1 if h == 12 else 0.0)
+    hs = importer.build_hours(g, p, TZ, date(2026, 12, 1), 3, gm, go)
+    h11 = [h for h in hs if h["start"] == datetime(2026, 11, 15, 11, tzinfo=timezone.utc)][0]  # 12 Uhr lokal
+    assert abs(h11["eigendeckung"] - 1.2) < 1e-9
+    assert abs(h11["eigendeckung_oliver"] - 0.3) < 1e-9
+    assert abs(h11["eigendeckung_maritta"] - 0.9) < 1e-9
+    h0 = hs[0]  # keine Erzeugung -> Maritta
+    assert h0["eigendeckung_oliver"] == 0 and abs(h0["eigendeckung_maritta"] - 1.2) < 1e-9
+
+
+def test_no_split_without_generation():
+    g = day_rows("2026-11-15", lambda h, m: 0.4)
+    hs = importer.build_hours(g, g, TZ, date(2026, 12, 1), 3, [], [])
+    assert "eigendeckung_maritta" not in hs[0]
