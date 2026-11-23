@@ -10,7 +10,7 @@ Inoffizielle Integration: Sie nutzt die Web-Schnittstelle des Portals, die nicht
 - `sensor:eeg_<zaehlpunkt>_vorlaeufig` – 1/0, vorläufige Stunden (Qualität ≠ L1 oder jünger als N Tage)
 
 Fehlende Viertelstunden werden nie als 0 geschrieben, die Stunde wird dann übersprungen.
-Nicht enthalten: die Aufteilung der Eigendeckung auf Maritta/Oliver (`_eigendeckung_maritta/_oliver`) und die Erzeuger.
+Zusätzlich wird die Eigendeckung auf die Erzeuger der EEG aufgeteilt (`..._eigendeckung_<erzeuger>`, im Verhältnis der Erzeugung je Viertelstunde; ohne Erzeugung geht sie an den ersten Erzeuger). Die Erzeuger und der Teilnahmefaktor-Verlauf werden bei jedem Lauf aus dem Portal gelesen, auch Erzeuger, die später dazukommen oder wegfallen, wirken tagesgenau. Die Zählpunkte `producer_maritta/oliver` in den Einstellungen sind nur ein Rückfall und halten die bisherigen Statistik-Namen (`_maritta`, `_oliver`).
 
 ## Installation
 1. HACS → Integrationen → ⋮ → Benutzerdefinierte Repositories → `https://github.com/kaipelstefan/eda-portal` (Kategorie Integration)

@@ -40,8 +40,7 @@ def build_hours(
     tz: ZoneInfo,
     today: date,
     prelim_days: int,
-    gen_maritta: list[list] | None = None,
-    gen_oliver: list[list] | None = None,
+    generation: dict[str, list[list]] | None = None,
     participation: list[tuple[date, float]] | None = None,
 ) -> list[dict]:
     """Stundenwerte: verbrauch (g), eigendeckung (g - p, >= 0), vorlaeufig (1/0).
@@ -51,9 +50,9 @@ def build_hours(
     Tag liegt weniger als `prelim_days` Tage zurueck."""
     g = _to_utc(g_rows, tz)
     p = _to_utc(p_rows, tz)
-    split = bool(gen_maritta) and bool(gen_oliver)
-    gm = _to_utc(gen_maritta or [], tz) if split else {}
-    go = _to_utc(gen_oliver or [], tz) if split else {}
+    # generation: {Schluessel: Viertelstundenwerte der Erzeugung}; Reihenfolge = Rangfolge
+    gens = {k: _to_utc(v, tz) for k, v in (generation or {}).items() if v}
+    split = bool(gens) and len(gens) == len(generation or {})
     groups: dict[datetime, list[datetime]] = defaultdict(list)
     for q in g:
         if q in p:
@@ -69,16 +68,17 @@ def build_hours(
         # Eigendeckung je Viertelstunde (nie negativ, nie groesser als der Verbrauch), dann summiert
         eq = {q: min(max(0.0, g[q][0] - p[q][0]), g[q][0]) for q in qs}
         e = sum(eq.values())
-        em = eo = 0.0
+        parts: dict[str, float] = {k: 0.0 for k in gens}
         if split:
+            first = next(iter(gens))
             for q in qs:
-                a = gm.get(q, (0.0, ""))[0]
-                b = go.get(q, (0.0, ""))[0]
-                if a + b > 0:
-                    eo += eq[q] * b / (a + b)
-                    em += eq[q] - eq[q] * b / (a + b)
+                w = {k: gens[k].get(q, (0.0, ""))[0] for k in gens}
+                tot = sum(w.values())
+                if tot > 0:
+                    for k in gens:
+                        parts[k] += eq[q] * w[k] / tot
                 else:
-                    em += eq[q]  # ohne Erzeugung -> PV Maritta (wie im bisherigen Import)
+                    parts[first] += eq[q]  # ohne Erzeugung -> erster Erzeuger (wie bisher PV Maritta)
         quality_ok = all(g[q][1] == QUALITY_OK and p[q][1] == QUALITY_OK for q in qs)
         local_day = start.astimezone(tz).date()
         recent = (today - local_day).days < prelim_days
@@ -89,8 +89,7 @@ def build_hours(
             "vorlaeufig": 0 if (quality_ok and not recent) else 1,
         }
         if split:
-            item["eigendeckung_maritta"] = round(em, 6)
-            item["eigendeckung_oliver"] = round(eo, 6)
+            item["split"] = {k: round(v_, 6) for k, v_ in parts.items()}
         hours.append(item)
     return hours
 
@@ -119,6 +118,18 @@ def participation_for(day: date, changes: list[tuple[date, float]]) -> float:
         if d <= day:
             pct = v
     return pct
+
+
+def slug(text: str) -> str:
+    """'PV Maritta' -> 'maritta' (Schluessel fuer die Statistik-ID)."""
+    import re
+    import unicodedata
+
+    t = unicodedata.normalize("NFKD", str(text or "")).encode("ascii", "ignore").decode().lower()
+    t = re.sub(r"[^a-z0-9]+", "_", t).strip("_")
+    if t.startswith("pv_"):
+        t = t[3:]
+    return t
 
 
 def days_range(start: date, end: date) -> list[date]:

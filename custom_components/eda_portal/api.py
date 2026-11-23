@@ -134,25 +134,12 @@ class EdaPortalClient:
                 return found
         raise EdaPortalError(f"EEG {configured} im Portal nicht gefunden")
 
-    async def participation_history(self, internal_id: str, metering_point: str) -> list[tuple[date, float]]:
-        """Teilnahmefaktor-Verlauf des Zaehlpunkts aus dem Portal: [(gueltig ab, Prozent)]."""
+    async def community_info(self, internal_id: str) -> dict:
+        """Gesamte Beschreibung der EEG inkl. Zaehlpunkte (ein Aufruf)."""
         data = await self._get_json(f"/api/pwa/energycommunities/{internal_id}")
-        mps = (data.get("data") or {}).get("meterpoints") or []
-        for mp in mps:
-            if str(mp.get("name", "")).upper() == metering_point.upper():
-                out = []
-                for h in mp.get("history") or []:
-                    try:
-                        f = float(h["participationFactor"])
-                        d = datetime.fromisoformat(str(h["dateFrom"]).replace(" ", "T")).date()
-                    except (KeyError, TypeError, ValueError):
-                        continue
-                    if f > 0:
-                        out.append((d, f))
-                if not out and mp.get("initialParticipationFactor"):
-                    out.append((date(2000, 1, 1), float(mp["initialParticipationFactor"])))
-                return sorted(out)
-        raise EdaPortalError(f"Zaehlpunkt {metering_point} nicht in der EEG gefunden")
+        if not isinstance(data, dict) or "data" not in data:
+            raise EdaPortalError("Unerwartete Antwort der EEG-Beschreibung")
+        return data
 
     async def day(self, kind: str, metering_point: str, day: date) -> list[list]:
         """Viertelstundenwerte eines Tages. kind: 'g' oder 'p'."""
@@ -182,3 +169,52 @@ def _find_community(data, wanted: str) -> str | None:
             if r:
                 return r
     return None
+
+
+def _d(value, default=None):
+    try:
+        return datetime.fromisoformat(str(value).replace(" ", "T")).date()
+    except (TypeError, ValueError):
+        return default
+
+
+def parse_participation(info: dict, metering_point: str) -> list[tuple[date, float]]:
+    """Teilnahmefaktor-Verlauf des Zaehlpunkts: [(gueltig ab, Prozent)]."""
+    for mp in (info.get("data") or {}).get("meterpoints") or []:
+        if str(mp.get("name", "")).upper() != metering_point.upper():
+            continue
+        out = []
+        for h in mp.get("history") or []:
+            try:
+                f = float(h["participationFactor"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            d = _d(h.get("dateFrom"))
+            if d and f > 0:
+                out.append((d, f))
+        if not out and mp.get("initialParticipationFactor"):
+            out.append((date(2000, 1, 1), float(mp["initialParticipationFactor"])))
+        return sorted(out)
+    raise EdaPortalError(f"Zaehlpunkt {metering_point} nicht in der EEG gefunden")
+
+
+def parse_producers(info: dict) -> list[dict]:
+    """Erzeuger der EEG: [{zp, alias, since, till}] (till = None -> unbegrenzt)."""
+    out = []
+    for mp in (info.get("data") or {}).get("meterpoints") or []:
+        is_gen = mp.get("isGenerator") is True or str(mp.get("energyDirection", "")).lower() == "generation"
+        if not is_gen or not mp.get("name"):
+            continue
+        since = _d(mp.get("inCommunitySince"))
+        if since is None:
+            starts = [d for d in (_d(h.get("dateFrom")) for h in mp.get("history") or []) if d]
+            since = min(starts) if starts else None
+        till = _d(mp.get("inCommunityTill"))
+        if till is not None and till.year >= 9000:
+            till = None
+        alias = next(
+            (str(mp[k]).strip() for k in ("alternativeName", "alternativeNamePwaUser", "description") if mp.get(k)),
+            "",
+        )
+        out.append({"zp": str(mp["name"]), "alias": alias, "since": since, "till": till})
+    return out

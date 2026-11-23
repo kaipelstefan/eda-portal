@@ -58,19 +58,19 @@ def test_split_proportional_and_fallback():
     p = day_rows("2026-11-15", lambda h, m: 0.1)  # eigendeckung 0.3 je Viertelstunde
     gm = day_rows("2026-11-15", lambda h, m: 0.3 if h == 12 else 0.0)
     go = day_rows("2026-11-15", lambda h, m: 0.1 if h == 12 else 0.0)
-    hs = importer.build_hours(g, p, TZ, date(2026, 12, 1), 3, gm, go)
+    hs = importer.build_hours(g, p, TZ, date(2026, 12, 1), 3, {"maritta": gm, "oliver": go})
     h11 = [h for h in hs if h["start"] == datetime(2026, 11, 15, 11, tzinfo=timezone.utc)][0]  # 12 Uhr lokal
     assert abs(h11["eigendeckung"] - 1.2) < 1e-9
-    assert abs(h11["eigendeckung_oliver"] - 0.3) < 1e-9
-    assert abs(h11["eigendeckung_maritta"] - 0.9) < 1e-9
+    assert abs(h11["split"]["oliver"] - 0.3) < 1e-9
+    assert abs(h11["split"]["maritta"] - 0.9) < 1e-9
     h0 = hs[0]  # keine Erzeugung -> Maritta
-    assert h0["eigendeckung_oliver"] == 0 and abs(h0["eigendeckung_maritta"] - 1.2) < 1e-9
+    assert h0["split"]["oliver"] == 0 and abs(h0["split"]["maritta"] - 1.2) < 1e-9
 
 
 def test_no_split_without_generation():
     g = day_rows("2026-11-15", lambda h, m: 0.4)
-    hs = importer.build_hours(g, g, TZ, date(2026, 12, 1), 3, [], [])
-    assert "eigendeckung_maritta" not in hs[0]
+    hs = importer.build_hours(g, g, TZ, date(2026, 12, 1), 3, {})
+    assert "split" not in hs[0]
 
 
 def test_participation_total_consumption():
@@ -82,3 +82,17 @@ def test_participation_total_consumption():
     assert abs(hs[0]["verbrauch"] - 1.0) < 1e-9  # 4 x 0.1 / 0.4
     g6 = day_rows("2026-11-06", lambda h, m: 0.1)
     assert abs(importer.build_hours(g6, g6, TZ, date(2026, 12, 1), 3, participation=ch)[0]["verbrauch"] - 0.4) < 1e-9
+
+
+def test_three_producers_and_slug():
+    g = day_rows("2026-11-15", lambda h, m: 0.4)
+    p = day_rows("2026-11-15", lambda h, m: 0.1)
+    a = day_rows("2026-11-15", lambda h, m: 0.2 if h == 12 else 0.0)
+    b = day_rows("2026-11-15", lambda h, m: 0.1 if h == 12 else 0.0)
+    c = day_rows("2026-11-15", lambda h, m: 0.1 if h == 12 else 0.0)
+    hs = importer.build_hours(g, p, TZ, date(2026, 12, 1), 3, {"a": a, "b": b, "c": c})
+    h = [x for x in hs if x["start"] == datetime(2026, 11, 15, 11, tzinfo=timezone.utc)][0]
+    assert abs(sum(h["split"].values()) - h["eigendeckung"]) < 1e-9
+    assert abs(h["split"]["a"] - 0.6) < 1e-9 and abs(h["split"]["b"] - 0.3) < 1e-9
+    assert importer.slug("PV Maritta") == "maritta" and importer.slug("PV Oliver") == "oliver"
+    assert importer.slug("Dach Süd 2") == "dach_sud_2"

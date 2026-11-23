@@ -18,7 +18,8 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import EdaPortalAuthError, EdaPortalClient, EdaPortalError
+from .api import EdaPortalAuthError, EdaPortalClient, EdaPortalError, parse_producers
+from .api import parse_participation as parse_portal_participation
 from .const import (
     CONF_COMMUNITY_ID,
     CONF_EMAIL,
@@ -41,7 +42,7 @@ from .const import (
     TIMEZONE,
     UPDATE_INTERVAL_HOURS,
 )
-from .importer import build_hours, days_range, parse_participation, stat_id
+from .importer import build_hours, days_range, parse_participation, slug, stat_id
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
@@ -49,9 +50,7 @@ TZ = ZoneInfo(TIMEZONE)
 
 _STATS = (("verbrauch", "kWh", "energy", "Verbrauch"),
           ("eigendeckung", "kWh", "energy", "Eigendeckung"),
-          ("vorlaeufig", "Flag", None, "Vorlaeufig"),
-          ("eigendeckung_maritta", "kWh", "energy", "Eigendeckung PV Maritta"),
-          ("eigendeckung_oliver", "kWh", "energy", "Eigendeckung PV Oliver"))
+          ("vorlaeufig", "Flag", None, "Vorlaeufig"))
 
 
 @dataclass
@@ -114,8 +113,24 @@ class EdaCoordinator(DataUpdateCoordinator[EdaResult]):
     def _configured_community(self) -> str:
         return str(self.entry.options.get(CONF_COMMUNITY_OVERRIDE) or self.entry.data[CONF_COMMUNITY_ID]).strip()
 
-    async def _prepare(self) -> list:
-        """Interne EEG-ID aufloesen (bei jedem Lauf, falls sie sich aendert) und Teilnahmefaktor lesen."""
+    @property
+    def _fallback_producers(self) -> list[dict]:
+        o = self.entry.options
+        out = []
+        for key, opt, default in (
+            ("maritta", CONF_PRODUCER_MARITTA, DEFAULT_PRODUCER_MARITTA),
+            ("oliver", CONF_PRODUCER_OLIVER, DEFAULT_PRODUCER_OLIVER),
+        ):
+            zp = str(o.get(opt, default)).strip().upper()
+            if zp:
+                out.append({"zp": zp, "key": key, "since": None, "till": None})
+        return out
+
+    async def _prepare(self) -> tuple[list, list[dict]]:
+        """Interne EEG-ID aufloesen (jeden Lauf, falls sie sich aendert), dann Teilnahmefaktor-Verlauf und
+        Erzeuger aus dem Portal lesen. Klappt das nicht, gelten die Einstellungen als Rueckfall."""
+        participation = None
+        producers = None
         try:
             internal = await self.client.resolve_community(self._configured_community)
             self.client.set_community(internal)
@@ -127,28 +142,35 @@ class EdaCoordinator(DataUpdateCoordinator[EdaResult]):
             self.client.set_community(self._configured_community)
         if internal:
             try:
-                hist = await self.client.participation_history(internal, self.zp)
-                if hist:
-                    return hist
+                info = await self.client.community_info(internal)
+                participation = parse_portal_participation(info, self.zp) or None
+                plist = parse_producers(info)
+                if plist:
+                    used: set[str] = set()
+                    producers = []
+                    known = {f["zp"]: f["key"] for f in self._fallback_producers}  # bisherige Schluessel bleiben erhalten
+                    for pr in plist:
+                        key = known.get(pr["zp"].upper()) or slug(pr["alias"]) or slug(pr["zp"])
+                        if key in used:
+                            key = slug(pr["zp"])
+                        used.add(key)
+                        producers.append({**pr, "key": key})
             except EdaPortalAuthError as err:
                 raise ConfigEntryAuthFailed(str(err)) from err
             except EdaPortalError as err:
-                _LOGGER.warning("Teilnahmefaktor nicht aus dem Portal lesbar, Einstellung wird benutzt: %s", err)
-        return self._participation_fallback
-
-    @property
-    def _producers(self) -> tuple[str, str]:
-        o = self.entry.options
-        return (
-            str(o.get(CONF_PRODUCER_MARITTA, DEFAULT_PRODUCER_MARITTA)).strip().upper(),
-            str(o.get(CONF_PRODUCER_OLIVER, DEFAULT_PRODUCER_OLIVER)).strip().upper(),
-        )
+                _LOGGER.warning("EEG-Daten nicht lesbar, Einstellungen werden als Rueckfall benutzt: %s", err)
+        if participation is None:
+            participation = self._participation_fallback
+        if producers is None:
+            producers = self._fallback_producers
+        _LOGGER.info("Erzeuger: %s", [(p_["zp"], p_["key"]) for p_ in producers])
+        return participation, producers
 
     async def import_range(self, start: date, end: date) -> EdaResult:
         """Holt g/p fuer jeden Tag und schreibt die Statistiken."""
         async with self._lock:
             today = datetime.now(TZ).date()
-            participation = await self._prepare()
+            participation, producers = await self._prepare()
             hours: list[dict] = []
             missing: list[str] = []
             for day in days_range(start, end):
@@ -161,31 +183,44 @@ class EdaCoordinator(DataUpdateCoordinator[EdaResult]):
                     raise ConfigEntryAuthFailed(str(err)) from err
                 except EdaPortalError as err:
                     raise UpdateFailed(str(err)) from err
-                pm, po = self._producers
-                gen_m: list = []
-                gen_o: list = []
-                if pm and po:
+                # Erzeuger, die an diesem Tag Teil der EEG waren (Aenderungen im Portal wirken so rueckwirkend richtig)
+                active = [
+                    pr for pr in producers
+                    if (pr["since"] is None or pr["since"] <= day) and (pr["till"] is None or day <= pr["till"])
+                ]
+                generation: dict[str, list] = {}
+                for pr in active:
                     try:
-                        gen_m = await self.client.day("g", pm, day)
-                        await asyncio.sleep(REQUEST_PAUSE_SECONDS)
-                        gen_o = await self.client.day("g", po, day)
+                        generation[pr["key"]] = await self.client.day("g", pr["zp"], day)
                         await asyncio.sleep(REQUEST_PAUSE_SECONDS)
                     except EdaPortalAuthError as err:
                         raise ConfigEntryAuthFailed(str(err)) from err
                     except EdaPortalError as err:
-                        _LOGGER.warning("Erzeugerdaten fuer %s nicht abrufbar: %s", day, err)
-                        gen_m, gen_o = [], []
-                day_hours = build_hours(g, p, TZ, today, self._prelim_days, gen_m, gen_o, participation)
+                        _LOGGER.warning("Erzeugerdaten %s fuer %s nicht abrufbar: %s", pr["zp"], day, err)
+                        generation = {}
+                        break
+                day_hours = build_hours(g, p, TZ, today, self._prelim_days, generation, participation)
                 if len(day_hours) < 23:
                     missing.append(day.isoformat())
                 hours.extend(day_hours)
             hours.sort(key=lambda h: h["start"])
-            for key, unit, unit_class, label in _STATS:
-                data = [
-                    StatisticData(start=h["start"], mean=h[key], min=h[key], max=h[key])
-                    for h in hours
-                    if key in h
-                ]
+            series = list(_STATS)
+            for key in sorted({k for h in hours for k in h.get("split", {})}):
+                series.append((f"eigendeckung_{key}", "kWh", "energy", f"Eigendeckung PV {key.title()}"))
+            for key, unit, unit_class, label in series:
+                if key.startswith("eigendeckung_"):
+                    sub = key[len("eigendeckung_"):]
+                    data = [
+                        StatisticData(start=h["start"], mean=h["split"][sub], min=h["split"][sub], max=h["split"][sub])
+                        for h in hours
+                        if sub in h.get("split", {})
+                    ]
+                else:
+                    data = [
+                        StatisticData(start=h["start"], mean=h[key], min=h[key], max=h[key])
+                        for h in hours
+                        if key in h
+                    ]
                 if data:
                     async_add_external_statistics(self.hass, _metadata(self.zp, key, unit, unit_class, label), data)
             result = EdaResult(written_hours=len(hours), missing_days=missing, last_run=datetime.now(TZ))
